@@ -6,7 +6,7 @@ AgentIntentSettlement is a reusable GenLayer Intelligent Contract that adjudicat
 
 **Network:** GenLayer Bradbury
 
-**Contract:** [`0x646a650d72948dA67f7F1899263dBd5e53a48a89`](https://explorer-bradbury.genlayer.com/address/0x646a650d72948dA67f7F1899263dBd5e53a48a89)
+**Contract:** [`0x5ED018A0893209f02E3Ad721d90a3132ed024dc7`](https://explorer-bradbury.genlayer.com/address/0x5ED018A0893209f02E3Ad721d90a3132ed024dc7)
 
 [`contracts/AgentIntentSettlement.py`](contracts/AgentIntentSettlement.py) is the implementation source of truth. This deployment reflects that file exactly.
 
@@ -133,7 +133,7 @@ If a caller tags a settlement with `context.agent_id`, each settlement updates a
 # a write method (cross-contract calls are forbidden inside run_nondet blocks):
 import genlayer.gl as gl
 
-SETTLEMENT_CONTRACT = Address("0x646a650d72948dA67f7F1899263dBd5e53a48a89")
+SETTLEMENT_CONTRACT = Address("0x5ED018A0893209f02E3Ad721d90a3132ed024dc7")
 
 verdict = gl.get_contract_at(SETTLEMENT_CONTRACT).emit(
     value=u256(escrow_amount)
@@ -154,11 +154,11 @@ This contract went through three independent review passes before this deploymen
 2. **Second adversarial audit** found and closed a partial-payout logic gap that allowed near-total escrow extraction on weak, self-authored evidence while completely bypassing the stronger evidence requirements gating full release — the most severe finding across all three passes — along with tightening the evidence-quality and confidence requirements for full release.
 3. **Portal steward review** flagged that the validator only checked the leader's output shape and never independently verified the evidence or the fulfillment decision — meaning two conflicting substantive verdicts could both pass. Fixed by redesigning the adjudication pipeline around `gl.eq_principle.prompt_non_comparative`, so every validator genuinely re-fetches evidence and re-derives its own judgment (see [How it works](#how-it-works) above).
 
-All three fixes were verified with real `settle_intent` transactions on live Bradbury, not only against the local test suite — see [`docs/security-model.md`](docs/security-model.md) for a known liveness trade-off observed during that live verification of fix 3.
+All three fixes were verified with real `settle_intent` transactions on live Bradbury, not only against the local test suite. A follow-up liveness-tuning pass then reduced per-validator independent workload (tighter evidence/prompt size ceilings, a per-call fetch cap) and re-verified live — see [`docs/security-model.md`](docs/security-model.md) for both the original steward-review verification and the liveness-tuning results, including a disclosed, not-fully-eliminated `DETERMINISTIC_VIOLATION`/timeout variability under current Bradbury network conditions.
 
 ## Testing
 
-83 direct-mode tests across five files in [`tests/direct/`](tests/direct/), covering the happy path, insufficient/partial/conflicting evidence, prompt-injection resistance, escrow across all five recommended actions, front-running and idempotency, input-size limits, calldata-safety (no float leaks into any return value), and every consistency rule above with a concrete failing-verdict payload for each. Run with:
+85 direct-mode tests across five files in [`tests/direct/`](tests/direct/), covering the happy path, insufficient/partial/conflicting evidence, prompt-injection resistance, escrow across all five recommended actions, front-running and idempotency, input-size limits, calldata-safety (no float leaks into any return value), the per-call evidence-fetch cap, and every consistency rule above with a concrete failing-verdict payload for each. Run with:
 
 ```bash
 gltest tests/direct/ -v

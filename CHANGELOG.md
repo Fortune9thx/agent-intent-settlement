@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.1
+
+- Liveness tuning in response to the validator-timeout pattern disclosed in 1.1.0: cut per-validator independent workload without weakening what is independently re-acquired/re-judged -- tighter evidence-item/char/prompt-field ceilings, a new per-call fetch cap (`MAX_FETCHED_ITEMS`, default 3) so validator fetch count no longer scales with submitted evidence volume, and a shorter adjudication prompt.
+- Removed redundant duplication where plain-text evidence content was rendered twice (once in the evidence summary, once again in the "enriched evidence" section).
+- Documented, and live-verified, why insufficient timely consensus votes cannot leave funds/state ambiguous: `settle_intent`'s escrow/reputation/storage-write code only runs after `prompt_non_comparative` returns an agreed value, so an unfinalized round writes no state at all and the same `settlement_id` can always be safely retried -- confirmed via `has_settlement` returning `false` for three non-finalized live transactions.
+- Redeployed to `0x5ED018A0893209f02E3Ad721d90a3132ed024dc7`. Live testing after tuning produced one clean majority `AGREE` (3/5 validators, correct evidence-reactive verdict on a real HTTP 403) alongside continued liveness variability, including a `DETERMINISTIC_VIOLATION` vote recurring intermittently within an otherwise-mixed round -- disclosed in `docs/security-model.md` as not fully eliminated, only reduced to a minority vote a same-round majority can still out-vote.
+- 85 direct-mode tests (up from 83), `genvm-lint` clean.
+
 ## 1.1.0
 
 - Redesigned the adjudication pipeline around `gl.eq_principle.prompt_non_comparative`, GenLayer's own SDK primitive for comparative validation, in response to a Portal steward review: every validator now independently re-fetches evidence and re-derives its own judgment before accepting the leader's output, rather than only checking structure/ranges.

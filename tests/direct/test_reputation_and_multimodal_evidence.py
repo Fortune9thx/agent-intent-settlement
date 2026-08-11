@@ -134,6 +134,60 @@ class TestScreenshotEvidence:
         assert verdict["fulfilled"] is True
 
 
+class TestFetchCap:
+    """Liveness tuning: MAX_FETCHED_ITEMS caps how many evidence items
+    trigger a real network fetch per settle_intent call, regardless of how
+    many fetchable items are submitted (within MAX_EVIDENCE_ITEMS) -- every
+    validator repeats these fetches independently, so fetch count is a
+    direct per-validator wall-clock cost."""
+
+    def test_fetch_count_is_capped_even_with_more_fetchable_items(
+        self, contract, direct_vm
+    ):
+        direct_vm.clear_mocks()
+        for i in range(5):
+            direct_vm.mock_web(
+                re_escape(f"https://example.com/cap{i}"), {"body": f"content {i}"}
+            )
+        direct_vm.mock_llm(".*", json.dumps(FULFILLED_VERDICT))
+
+        items = [
+            {"type": "url", "content": f"https://example.com/cap{i}"}
+            for i in range(5)
+        ]
+        contract.settle_intent(
+            settlement_id="fc-1",
+            natural_language_goal="Goal",
+            agent_claim="Claim",
+            evidence_json=json.dumps(items),
+        )
+
+        # Only MAX_FETCHED_ITEMS (3) of the 5 registered per-URL mocks
+        # should ever have been hit -- items beyond the cap are never
+        # fetched at all, not merely truncated after fetching.
+        assert len(direct_vm._web_mocks_hit) == 3
+
+    def test_settlement_still_succeeds_with_items_beyond_fetch_cap(
+        self, contract, direct_vm
+    ):
+        direct_vm.clear_mocks()
+        direct_vm.mock_web(".*", {"body": "content"})
+        direct_vm.mock_llm(".*", json.dumps(FULFILLED_VERDICT))
+
+        items = [
+            {"type": "url", "content": f"https://example.com/beyond{i}"}
+            for i in range(6)
+        ]
+        verdict = contract.settle_intent(
+            settlement_id="fc-2",
+            natural_language_goal="Goal",
+            agent_claim="Claim",
+            evidence_json=json.dumps(items),
+        )
+        assert verdict["fulfilled"] is True
+        assert verdict["recommended_action"] == "release_escrow"
+
+
 class TestIpfsEvidence:
     def test_ipfs_cid_is_resolved_via_gateway(self, contract, direct_vm):
         cid = "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"
