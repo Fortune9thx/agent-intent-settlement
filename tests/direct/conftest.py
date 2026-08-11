@@ -97,3 +97,47 @@ def _patched_handle_web_render(vm, data):
 
 
 _wasi_mock._handle_web_render = _patched_handle_web_render
+
+
+# ----------------------------------------------------------------------------
+# gltest.direct.wasi_mock._handle_gl_call (genlayer-test==0.29.2) has NO case
+# for the "ExecPromptTemplate" gl_call request type -- the request
+# gl.eq_principle.prompt_non_comparative uses internally (distinct from the
+# plain "ExecPrompt" request gl.nondet.exec_prompt uses, which the mock
+# already supports). Unpatched, this means prompt_non_comparative silently
+# resolves to None in direct-mode tests -- a real gap in the test harness,
+# not the SDK or this contract, that AgentIntentSettlement now depends on
+# since switching from a hand-rolled comparative validator_fn (which hit a
+# real DETERMINISTIC_VIOLATION on live GenVM) to this SDK-native primitive.
+#
+# Fix: handle ExecPromptTemplate by echoing the leader's own "input" text
+# back as the agreed answer by default (a well-formed input surviving an
+# equivalence check unchanged is the realistic behavior these tests
+# construct), while still letting vm.mock_llm(pattern, response) override
+# per call by matching against that same input text -- exactly the pattern
+# tests/direct/*.py already use for the plain "ExecPrompt" case.
+# ----------------------------------------------------------------------------
+_original_handle_gl_call = _wasi_mock._handle_gl_call
+
+
+def _patched_handle_gl_call(vm, request):
+    if isinstance(request, dict) and "ExecPromptTemplate" in request:
+        return _handle_exec_prompt_template(vm, request["ExecPromptTemplate"])
+    return _original_handle_gl_call(vm, request)
+
+
+def _handle_exec_prompt_template(vm, data):
+    import json as _json
+
+    match_text = data.get("input") or data.get("validator_answer") or ""
+
+    override = vm._match_llm_mock(match_text) if match_text else None
+    if override is not None:
+        if not isinstance(override, str):
+            override = _json.dumps(override)
+        return {"ok": override}
+
+    return {"ok": match_text}
+
+
+_wasi_mock._handle_gl_call = _patched_handle_gl_call

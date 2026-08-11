@@ -3,10 +3,14 @@ Direct-mode tests for the two most recently added features:
   - Reputation side-effects (context.agent_id -> get_reputation)
   - Multimodal/screenshot + IPFS evidence enrichment
 
-See tests/direct/conftest.py for the WASI-mock screenshot-mode patch this
-file depends on (mode="screenshot" honoring the registered mock body).
+Note on "screenshot" evidence: after switching the adjudication pipeline
+to gl.eq_principle.prompt_non_comparative (see AgentIntentSettlement.py's
+module docstring for why), screenshot-type evidence is fetched as rendered
+page TEXT via gl.nondet.web.render(mode="text"), not as a real attached
+image -- prompt_non_comparative's underlying call has no multimodal images
+parameter. It still counts as VERIFIABLE_EVIDENCE_TYPES since a genuine
+third-party fetch happens.
 """
-import io
 import json
 import re
 
@@ -18,16 +22,6 @@ CONTRACT_PATH = "contracts/AgentIntentSettlement.py"
 def re_escape(url: str) -> str:
     return re.escape(url)
 
-
-def _make_tiny_png() -> bytes:
-    import PIL.Image
-
-    buf = io.BytesIO()
-    PIL.Image.new("RGB", (4, 4), color=(10, 200, 10)).save(buf, format="PNG")
-    return buf.getvalue()
-
-
-TINY_PNG_BYTES = _make_tiny_png()
 
 FULFILLED_VERDICT = {
     "fulfilled": True,
@@ -81,11 +75,13 @@ def _mock_llm(direct_vm, verdict: dict):
 
 
 class TestScreenshotEvidence:
-    def test_screenshot_evidence_is_captured_and_used(self, contract, direct_vm):
+    def test_screenshot_evidence_is_fetched_and_counts_as_verifiable(
+        self, contract, direct_vm
+    ):
         direct_vm.clear_mocks()
         direct_vm.mock_web(
             re_escape("https://dashboard.example.com/status"),
-            {"body": TINY_PNG_BYTES},
+            {"body": "All systems operational. Status: green."},
         )
         direct_vm.mock_llm(".*", json.dumps(FULFILLED_VERDICT))
 
@@ -99,8 +95,9 @@ class TestScreenshotEvidence:
         )
 
         assert verdict["fulfilled"] is True
+        assert verdict["recommended_action"] == "release_escrow"
 
-    def test_screenshot_capture_failure_does_not_abort_settlement(self, contract, direct_vm):
+    def test_screenshot_fetch_failure_does_not_abort_settlement(self, contract, direct_vm):
         direct_vm.clear_mocks()
         # No mock_web registered -> render() raises inside _fetch_evidence,
         # which must degrade gracefully rather than crash settle_intent.
@@ -117,9 +114,11 @@ class TestScreenshotEvidence:
 
         assert verdict["recommended_action"] == "escalate"
 
-    def test_too_many_screenshot_items_are_capped_not_rejected(self, contract, direct_vm):
+    def test_many_screenshot_items_within_evidence_item_limit_all_process(
+        self, contract, direct_vm
+    ):
         direct_vm.clear_mocks()
-        direct_vm.mock_web(".*", {"body": TINY_PNG_BYTES})
+        direct_vm.mock_web(".*", {"body": "page content"})
         direct_vm.mock_llm(".*", json.dumps(FULFILLED_VERDICT))
 
         items = [

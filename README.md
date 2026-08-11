@@ -6,7 +6,7 @@ AgentIntentSettlement is a reusable GenLayer Intelligent Contract that adjudicat
 
 **Network:** GenLayer Bradbury
 
-**Contract:** [`0x7B40b4A7E3073C67dB4BC9c1930f454dbec79Dac`](https://explorer-bradbury.genlayer.com/address/0x7B40b4A7E3073C67dB4BC9c1930f454dbec79Dac)
+**Contract:** [`0x646a650d72948dA67f7F1899263dBd5e53a48a89`](https://explorer-bradbury.genlayer.com/address/0x646a650d72948dA67f7F1899263dBd5e53a48a89)
 
 [`contracts/AgentIntentSettlement.py`](contracts/AgentIntentSettlement.py) is the implementation source of truth. This deployment reflects that file exactly.
 
@@ -24,18 +24,18 @@ AgentIntentSettlement is a settlement primitive. It does not perform the underly
 
 ```mermaid
 flowchart LR
-    A[Caller submits goal, claim, evidence] --> B[Leader fetches URL/IPFS/screenshot evidence]
+    A[Caller submits goal, claim, evidence] --> B[Leader independently fetches evidence]
     B --> C[Leader proposes a structured verdict]
-    C --> D[Validators independently re-check structure and consistency]
-    D --> E[GenLayer resolves agreement]
+    C --> D[Validator independently re-fetches evidence + re-derives its own verdict]
+    D --> E[Validator's LLM judges the leader's output against its own independent input]
     E --> F[Contract deterministically moves escrowed funds]
     F --> G[Immutable settlement record]
 ```
 
 1. The caller calls `settle_intent` with a goal, a claim, evidence, and optionally GEN value to escrow.
-2. The leader fetches any URL/IPFS/screenshot evidence and asks an LLM to adjudicate fulfillment against the evidence, under a prompt that treats the claim as an unproven hypothesis and evidence content as untrusted data, never as instructions.
-3. Validators independently re-derive the verdict's structural and semantic validity — required fields, value ranges, and cross-field consistency rules (below) — before GenLayer's Equivalence Principle resolves consensus.
-4. Once agreed, deterministic contract code executes the verdict's financial consequence and stores the settlement record.
+2. The leader independently fetches any URL/IPFS/screenshot evidence and produces a structured verdict.
+3. Every validator independently repeats the SAME fetch (its own fresh request, never a reuse of the leader's) and forms its own understanding of the evidence, then its own LLM call judges whether the leader's output is a faithful, well-justified execution of the adjudication task given that independently-gathered evidence — via `gl.eq_principle.prompt_non_comparative`, GenLayer's own SDK primitive for this pattern, not a hand-rolled comparison. A validator that only checked the leader's JSON shape without re-acquiring evidence could let two conflicting fulfillment decisions both pass; this is the mechanism that closes that gap.
+4. Once agreed, deterministic contract code applies the consistency rules below and executes the verdict's financial consequence.
 
 ## Why GenLayer is required
 
@@ -43,7 +43,7 @@ Ordinary deterministic code can validate schemas, enforce length limits, track e
 
 ## Verdict consistency guarantees
 
-The LLM's raw output is never trusted directly. Both the leader's proposal and every validator's independent check enforce the same deterministic consistency rules before a verdict is accepted:
+The LLM's raw output is never trusted directly. Regardless of what the leader/validator LLM calls produce, the contract's own deterministic code enforces these rules on the agreed output before it can move funds or reputation:
 
 - `release_escrow` requires **all** of: `fulfilled = true`, `evidence_quality = "strong"`, at least one *externally verifiable* evidence item (a fetched URL, IPFS reference, or screenshot — not submitter-authored text alone), and a minimum self-reported confidence. A verdict missing any of these is downgraded to `escalate`, never silently trusted.
 - `partial_payout` is capped well below full credit whenever evidence quality is only `"weak"` — a verdict cannot claim near-total credit on unconvincing evidence and drain an escrow through the "partial" path.
@@ -133,7 +133,7 @@ If a caller tags a settlement with `context.agent_id`, each settlement updates a
 # a write method (cross-contract calls are forbidden inside run_nondet blocks):
 import genlayer.gl as gl
 
-SETTLEMENT_CONTRACT = Address("0x7B40b4A7E3073C67dB4BC9c1930f454dbec79Dac")
+SETTLEMENT_CONTRACT = Address("0x646a650d72948dA67f7F1899263dBd5e53a48a89")
 
 verdict = gl.get_contract_at(SETTLEMENT_CONTRACT).emit(
     value=u256(escrow_amount)
@@ -146,18 +146,19 @@ verdict = gl.get_contract_at(SETTLEMENT_CONTRACT).emit(
 )
 ```
 
-## Security audits
+## Security audits and reviews
 
-This contract went through two independent adversarial review passes before this deployment, both documented in [`docs/security-model.md`](docs/security-model.md):
+This contract went through three independent review passes before this deployment, all documented in [`docs/security-model.md`](docs/security-model.md):
 
-1. **First pass** found and closed a calldata-encoding defect that would have crashed every public method call in production the moment a verdict contained a numeric field, a settlement-id front-running path that could strand a legitimate funder's escrowed value, and missing input-size limits.
-2. **Second pass** found and closed a partial-payout logic gap that allowed near-total escrow extraction on weak, self-authored evidence while completely bypassing the stronger evidence requirements gating full release — the most severe finding across both passes — along with tightening the evidence-quality and confidence requirements for full release.
+1. **First adversarial audit** found and closed a calldata-encoding defect that would have crashed every public method call in production the moment a verdict contained a numeric field, a settlement-id front-running path that could strand a legitimate funder's escrowed value, and missing input-size limits.
+2. **Second adversarial audit** found and closed a partial-payout logic gap that allowed near-total escrow extraction on weak, self-authored evidence while completely bypassing the stronger evidence requirements gating full release — the most severe finding across all three passes — along with tightening the evidence-quality and confidence requirements for full release.
+3. **Portal steward review** flagged that the validator only checked the leader's output shape and never independently verified the evidence or the fulfillment decision — meaning two conflicting substantive verdicts could both pass. Fixed by redesigning the adjudication pipeline around `gl.eq_principle.prompt_non_comparative`, so every validator genuinely re-fetches evidence and re-derives its own judgment (see [How it works](#how-it-works) above).
 
-Both fixes were verified with real, adversarially-crafted `settle_intent` transactions on live Bradbury, not only against the local test suite.
+All three fixes were verified with real `settle_intent` transactions on live Bradbury, not only against the local test suite — see [`docs/security-model.md`](docs/security-model.md) for a known liveness trade-off observed during that live verification of fix 3.
 
 ## Testing
 
-77 direct-mode tests across four files in [`tests/direct/`](tests/direct/), covering the happy path, insufficient/partial/conflicting evidence, prompt-injection resistance, escrow across all five recommended actions, front-running and idempotency, input-size limits, calldata-safety (no float leaks into any return value), and every consistency rule above with a concrete failing-verdict payload for each. Run with:
+83 direct-mode tests across five files in [`tests/direct/`](tests/direct/), covering the happy path, insufficient/partial/conflicting evidence, prompt-injection resistance, escrow across all five recommended actions, front-running and idempotency, input-size limits, calldata-safety (no float leaks into any return value), and every consistency rule above with a concrete failing-verdict payload for each. Run with:
 
 ```bash
 gltest tests/direct/ -v
