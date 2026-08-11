@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.2
+
+- Further liveness tuning: `MAX_FETCHED_ITEMS` 3 → 1, evidence/prompt ceilings cut again (`MAX_EVIDENCE_ITEMS` 10 → 5, char limits roughly halved), required reasoning length shortened. Redeployed to `0xdC53EACBD7685a8dbd4fe1E889ed50dB272766a6`.
+- Live verification at this deployment hit sustained `PENDING`/pre-round-activity stalls on Bradbury rather than the round-level `TIMEOUT`/`DETERMINISTIC_VIOLATION` pattern seen previously -- disclosed as a signal that the remaining bottleneck for those specific attempts was network/validator-availability conditions, not contract payload size. `has_settlement` confirmed no state was written for any of the four non-finalized attempts. The prior deployment (`0x5ED018A0893209f02E3Ad721d90a3132ed024dc7`) remains the reference for a clean, live, majority-`AGREE` result under the same design.
+- 85 direct-mode tests, `genvm-lint` clean.
+
 ## 1.1.1
 
 - Liveness tuning in response to the validator-timeout pattern disclosed in 1.1.0: cut per-validator independent workload without weakening what is independently re-acquired/re-judged -- tighter evidence-item/char/prompt-field ceilings, a new per-call fetch cap (`MAX_FETCHED_ITEMS`, default 3) so validator fetch count no longer scales with submitted evidence volume, and a shorter adjudication prompt.

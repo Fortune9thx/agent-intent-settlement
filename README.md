@@ -6,7 +6,7 @@ AgentIntentSettlement is a reusable GenLayer Intelligent Contract that adjudicat
 
 **Network:** GenLayer Bradbury
 
-**Contract:** [`0x5ED018A0893209f02E3Ad721d90a3132ed024dc7`](https://explorer-bradbury.genlayer.com/address/0x5ED018A0893209f02E3Ad721d90a3132ed024dc7)
+**Contract:** [`0xdC53EACBD7685a8dbd4fe1E889ed50dB272766a6`](https://explorer-bradbury.genlayer.com/address/0xdC53EACBD7685a8dbd4fe1E889ed50dB272766a6)
 
 [`contracts/AgentIntentSettlement.py`](contracts/AgentIntentSettlement.py) is the implementation source of truth. This deployment reflects that file exactly.
 
@@ -133,7 +133,7 @@ If a caller tags a settlement with `context.agent_id`, each settlement updates a
 # a write method (cross-contract calls are forbidden inside run_nondet blocks):
 import genlayer.gl as gl
 
-SETTLEMENT_CONTRACT = Address("0x5ED018A0893209f02E3Ad721d90a3132ed024dc7")
+SETTLEMENT_CONTRACT = Address("0xdC53EACBD7685a8dbd4fe1E889ed50dB272766a6")
 
 verdict = gl.get_contract_at(SETTLEMENT_CONTRACT).emit(
     value=u256(escrow_amount)

@@ -123,7 +123,7 @@ class TestScreenshotEvidence:
 
         items = [
             {"type": "screenshot", "content": f"https://example.com/shot{i}.png"}
-            for i in range(10)
+            for i in range(5)
         ]
         verdict = contract.settle_intent(
             settlement_id="m-3",
@@ -162,10 +162,10 @@ class TestFetchCap:
             evidence_json=json.dumps(items),
         )
 
-        # Only MAX_FETCHED_ITEMS (3) of the 5 registered per-URL mocks
+        # Only MAX_FETCHED_ITEMS (1) of the 5 registered per-URL mocks
         # should ever have been hit -- items beyond the cap are never
         # fetched at all, not merely truncated after fetching.
-        assert len(direct_vm._web_mocks_hit) == 3
+        assert len(direct_vm._web_mocks_hit) == 1
 
     def test_settlement_still_succeeds_with_items_beyond_fetch_cap(
         self, contract, direct_vm
@@ -176,7 +176,7 @@ class TestFetchCap:
 
         items = [
             {"type": "url", "content": f"https://example.com/beyond{i}"}
-            for i in range(6)
+            for i in range(5)
         ]
         verdict = contract.settle_intent(
             settlement_id="fc-2",

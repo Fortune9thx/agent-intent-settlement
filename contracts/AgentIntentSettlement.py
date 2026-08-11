@@ -87,23 +87,26 @@ REQUIRED_VERDICT_KEYS = {
     "recommended_action",
 }
 
-MAX_EVIDENCE_ITEMS = 10
-MAX_FETCHED_URL_CHARS = 1500
+MAX_EVIDENCE_ITEMS = 5
+MAX_FETCHED_URL_CHARS = 800
 IPFS_GATEWAY = "https://ipfs.io/ipfs/"
 
 # Per-call cap on how many evidence items actually trigger a network fetch
 # (url/ipfs/screenshot). Every validator does this work independently, so
 # fetch count -- not just prompt size -- directly drives per-validator wall
 # time; items beyond this cap are noted as skipped rather than fetched.
-MAX_FETCHED_ITEMS = 3
+# Deliberately as low as 1: a single independently-fetched item is enough
+# to satisfy the verifiability requirement, and every additional fetch is
+# pure added per-validator latency for no correctness benefit.
+MAX_FETCHED_ITEMS = 1
 
 # Input-size ceilings against catastrophic-prompt-size / gas griefing, and
 # (secondarily) against per-validator LLM latency.
-MAX_GOAL_CHARS = 1500
-MAX_CLAIM_CHARS = 1500
-MAX_CRITERIA_CHARS = 1500
-MAX_CONTEXT_JSON_CHARS = 1500
-MAX_EVIDENCE_ITEM_CHARS = 2000
+MAX_GOAL_CHARS = 800
+MAX_CLAIM_CHARS = 800
+MAX_CRITERIA_CHARS = 800
+MAX_CONTEXT_JSON_CHARS = 800
+MAX_EVIDENCE_ITEM_CHARS = 1000
 
 VALID_RESOLVE_ACTIONS = {"release_escrow", "partial_payout", "slash", "reject"}
 
@@ -144,7 +147,7 @@ Respond with EXACTLY one JSON object, nothing else, these fields only:
   "fulfilled": <bool, true only if evidence CONSERVATIVELY and clearly
     shows substantial fulfillment>,
   "confidence": <STRING decimal "0.0"-"1.0", e.g. "0.85">,
-  "reasoning": <string, 2-4 sentences citing specific evidence items>,
+  "reasoning": <string, 1-2 sentences citing specific evidence items>,
   "partial_credit": <STRING decimal "0.0"-"1.0", fraction accomplished>,
   "evidence_quality": <"strong" | "weak" | "conflicting" | "insufficient">,
   "violations": <list of strings, empty if none>,
