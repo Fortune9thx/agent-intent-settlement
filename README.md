@@ -4,11 +4,11 @@ AgentIntentSettlement is a reusable GenLayer Intelligent Contract that adjudicat
 
 ## Deployed contract
 
-**Network:** GenLayer Studio Network (chain id 61999)
+**Network:** GenLayer Bradbury Testnet
 
-**Contract:** [`0xEcB0951a3d7361A01998936D34DC2DBc9DE72Dbc`](https://genlayer-explorer.vercel.app/address/0xEcB0951a3d7361A01998936D34DC2DBc9DE72Dbc)
+**Contract:** [`0x43530786f5920BE9Dd7A9CDfC22243d1d22B4a6d`](https://explorer-bradbury.genlayer.com/address/0x43530786f5920BE9Dd7A9CDfC22243d1d22B4a6d)
 
-[`contracts/AgentIntentSettlement.py`](contracts/AgentIntentSettlement.py) is the implementation source of truth. This deployment reflects that file exactly, and is live-verified — deploy and a `settle_intent` settlement both reached clean `ACCEPTED`/`MAJORITY_AGREE` consensus on GenLayer Studio Network (see [`docs/security-model.md`](docs/security-model.md#studio-network-verification)). The same code was previously deployed and partially verified on GenLayer Bradbury testnet; Studio Network is used here because Bradbury was experiencing a testnet-wide transaction-activation backlog at verification time (also documented in `docs/security-model.md`) — the contract itself is network-agnostic and the design is unchanged.
+[`contracts/AgentIntentSettlement.py`](contracts/AgentIntentSettlement.py) is the implementation source of truth. This deployment reflects that file exactly and reached `ACCEPTED`/`AGREE` on deploy. The same code was also deployed and live-verified with real `settle_intent` calls on GenLayer Studio Network at `0xEcB0951a3d7361A01998936D34DC2DBc9DE72Dbc` (see [`docs/security-model.md`](docs/security-model.md#studio-network-verification)) — Bradbury is the primary deployment reference here since it has a working, browsable block explorer at the time of writing (GenLayer's hosted Studio Network explorer is currently paused on their end); the contract itself is network-agnostic and the design is identical across both.
 
 **Fund-moving paths, exhaustively:** every settlement's escrow moves either (a) automatically, bound to the independently-assessed `settle_intent` verdict, or (b) via `resolve_stale_escrow`, a permissionless, refund-only safety valve after a 30-day timeout on an escalated case. There is no discretionary funder-resolution method — an earlier `resolve_escrow` method that let the funder override an `"escalate"` outcome without a fresh independent assessment has been removed entirely (see [`docs/security-model.md`](docs/security-model.md) for why).
 
@@ -134,7 +134,7 @@ If a caller tags a settlement with `context.agent_id`, each settlement updates a
 # a write method (cross-contract calls are forbidden inside run_nondet blocks):
 import genlayer.gl as gl
 
-SETTLEMENT_CONTRACT = Address("0xEcB0951a3d7361A01998936D34DC2DBc9DE72Dbc")
+SETTLEMENT_CONTRACT = Address("0x43530786f5920BE9Dd7A9CDfC22243d1d22B4a6d")
 
 verdict = gl.get_contract_at(SETTLEMENT_CONTRACT).emit(
     value=u256(escrow_amount)

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.1
+
+- No code changes. Redeployed the identical 1.2.0 contract to GenLayer Bradbury (`0x43530786f5920BE9Dd7A9CDfC22243d1d22B4a6d`, `ACCEPTED`/`AGREE` on deploy) and made it the primary README-listed deployment, since GenLayer's hosted Studio Network explorer (`genlayer-explorer.vercel.app`) was found to be paused (`DEPLOYMENT_PAUSED`) on GenLayer's own infrastructure, while Bradbury's explorer (`explorer-bradbury.genlayer.com`) is live -- needed for the Portal submission's required `genlayer-explorer-contract` evidence link, which appears to validate that the URL actually resolves. The Studio Network deployment (`0xEcB0951a3d7361A01998936D34DC2DBc9DE72Dbc`) and its live-verification record remain valid and documented as supplementary evidence.
+
 ## 1.2.0
 
 - Fifth adversarial pass (final pre-resubmission, targeting the "bind every fund-affecting output to independent assessment" requirement directly): identified that `resolve_escrow` let the original funder manually override an `"escalate"` outcome (`release_escrow`/`partial_payout`/`slash`/`reject`) on their own escrowed funds without a fresh independent evidence assessment -- a fund-affecting output produced by discretion, not consensus.
