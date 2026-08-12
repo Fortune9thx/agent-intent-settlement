@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.3
+
+- No contract code changes. Bradbury testnet's transaction-activation queue was confirmed (via the explorer's own queue-position display, and terminal `CANCELED`/`NOT_VOTED`/`numOfRounds: 0` receipts) to be backlogged network-wide, unrelated to contract correctness or payload size. The identical `1.1.2` contract source was deployed to GenLayer Studio Network (chain id 61999) for a clean verification run.
+- Deployed to `0xa4499ccecfc5474c76B6a0A9E17a2103aec8aE41`. Deploy: `FINALIZED`/`MAJORITY_AGREE`. Three independent `settle_intent` calls, all `ACCEPTED`/`MAJORITY_AGREE` (3/5 `AGREE` each, including one round with a genuine `DISAGREE` vote), with verdicts genuinely reactive to each validator's own independent fetch outcome (a successful fetch, a failed fetch, and an HTTP 403) rather than to the submitted claim text. Reputation aggregation verified correct across two settlements for the same agent.
+- This is now the primary reference deployment; see `docs/security-model.md` for the full verification record.
+
 ## 1.1.2
 
 - Further liveness tuning: `MAX_FETCHED_ITEMS` 3 → 1, evidence/prompt ceilings cut again (`MAX_EVIDENCE_ITEMS` 10 → 5, char limits roughly halved), required reasoning length shortened. Redeployed to `0xdC53EACBD7685a8dbd4fe1E889ed50dB272766a6`.

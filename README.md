@@ -4,11 +4,11 @@ AgentIntentSettlement is a reusable GenLayer Intelligent Contract that adjudicat
 
 ## Deployed contract
 
-**Network:** GenLayer Bradbury
+**Network:** GenLayer Studio Network (chain id 61999)
 
-**Contract:** [`0xdC53EACBD7685a8dbd4fe1E889ed50dB272766a6`](https://explorer-bradbury.genlayer.com/address/0xdC53EACBD7685a8dbd4fe1E889ed50dB272766a6)
+**Contract:** [`0xa4499ccecfc5474c76B6a0A9E17a2103aec8aE41`](https://genlayer-explorer.vercel.app/address/0xa4499ccecfc5474c76B6a0A9E17a2103aec8aE41)
 
-[`contracts/AgentIntentSettlement.py`](contracts/AgentIntentSettlement.py) is the implementation source of truth. This deployment reflects that file exactly.
+[`contracts/AgentIntentSettlement.py`](contracts/AgentIntentSettlement.py) is the implementation source of truth. This deployment reflects that file exactly, and is live-verified end to end — deploy, three independent `settle_intent` settlements, and reputation aggregation all reached clean `ACCEPTED`/`MAJORITY_AGREE` consensus (see [`docs/security-model.md`](docs/security-model.md#studio-network-verification)). The same code was previously deployed and partially verified on GenLayer Bradbury testnet; Studio Network is used here because Bradbury was experiencing a testnet-wide transaction-activation backlog at verification time (also documented in `docs/security-model.md`) — the contract itself is network-agnostic and the design is unchanged.
 
 ## The trust problem
 
@@ -133,7 +133,7 @@ If a caller tags a settlement with `context.agent_id`, each settlement updates a
 # a write method (cross-contract calls are forbidden inside run_nondet blocks):
 import genlayer.gl as gl
 
-SETTLEMENT_CONTRACT = Address("0xdC53EACBD7685a8dbd4fe1E889ed50dB272766a6")
+SETTLEMENT_CONTRACT = Address("0xa4499ccecfc5474c76B6a0A9E17a2103aec8aE41")
 
 verdict = gl.get_contract_at(SETTLEMENT_CONTRACT).emit(
     value=u256(escrow_amount)
