@@ -351,3 +351,95 @@ class TestReputation:
             context_json=json.dumps({"agent_id": "   "}),
         )
         assert contract.has_reputation(agent_id="   ") is False
+
+
+class TestAgentOwnership:
+    """Without an ownership check, agent_id is a bare caller-supplied
+    string with no binding to identity -- any caller could attribute any
+    outcome to any agent_id, inflating or griefing a reputation score
+    that isn't theirs. First-claim-wins ownership closes that: the first
+    sender to use an agent_id becomes its permanent owner for reputation
+    purposes."""
+
+    def test_first_sender_becomes_the_owner(self, contract, direct_vm):
+        _mock_llm(direct_vm, FULFILLED_VERDICT)
+        assert contract.has_agent_owner(agent_id="agent-owned-1") is False
+
+        contract.settle_intent(
+            settlement_id="ao-1",
+            natural_language_goal="Goal",
+            agent_claim="Claim",
+            evidence_json=json.dumps(
+                ["evidence", {"type": "url", "content": "https://example.com/proof"}]
+            ),
+            context_json=json.dumps({"agent_id": "agent-owned-1"}),
+        )
+
+        assert contract.has_agent_owner(agent_id="agent-owned-1") is True
+        owner = contract.get_agent_owner(agent_id="agent-owned-1")
+        assert owner  # the deploying/default sender's address, non-empty
+        assert contract.get_reputation(agent_id="agent-owned-1")["total_settlements"] == 1
+
+    def test_different_sender_cannot_grief_an_owned_agent_ids_reputation(
+        self, contract, direct_vm, direct_bob
+    ):
+        _mock_llm(direct_vm, FULFILLED_VERDICT)
+        contract.settle_intent(
+            settlement_id="ao-2a",
+            natural_language_goal="Goal",
+            agent_claim="Claim",
+            evidence_json=json.dumps(
+                ["evidence", {"type": "url", "content": "https://example.com/proof"}]
+            ),
+            context_json=json.dumps({"agent_id": "agent-owned-2"}),
+        )
+        rep_before = contract.get_reputation(agent_id="agent-owned-2")
+
+        # Bob never owned "agent-owned-2" -- he tries to tag a slash onto
+        # it, hoping to tank its reputation score.
+        _mock_llm(direct_vm, SLASH_VERDICT)
+        with direct_vm.prank(direct_bob):
+            verdict = contract.settle_intent(
+                settlement_id="ao-2b",
+                natural_language_goal="Goal",
+                agent_claim="Claim",
+                evidence_json=json.dumps(["contradicting evidence"]),
+                context_json=json.dumps({"agent_id": "agent-owned-2"}),
+            )
+
+        # The settlement itself still succeeds (escrow/verdict unaffected)
+        # -- only the reputation attribution is refused.
+        assert verdict["recommended_action"] == "slash"
+        rep_after = contract.get_reputation(agent_id="agent-owned-2")
+        assert rep_after == rep_before  # completely untouched by Bob's attempt
+
+        record = contract.get_settlement(settlement_id="ao-2b")
+        assert record["agent_id"] is None  # not attributed to the spoofed id
+
+    def test_same_sender_can_reuse_their_own_agent_id_across_settlements(
+        self, contract, direct_vm
+    ):
+        _mock_llm(direct_vm, FULFILLED_VERDICT)
+        contract.settle_intent(
+            settlement_id="ao-3a",
+            natural_language_goal="Goal A",
+            agent_claim="Claim A",
+            evidence_json=json.dumps(
+                ["evidence", {"type": "url", "content": "https://example.com/proof"}]
+            ),
+            context_json=json.dumps({"agent_id": "agent-owned-3"}),
+        )
+        contract.settle_intent(
+            settlement_id="ao-3b",
+            natural_language_goal="Goal B",
+            agent_claim="Claim B",
+            evidence_json=json.dumps(
+                ["evidence", {"type": "url", "content": "https://example.com/proof"}]
+            ),
+            context_json=json.dumps({"agent_id": "agent-owned-3"}),
+        )
+        assert contract.get_reputation(agent_id="agent-owned-3")["total_settlements"] == 2
+
+    def test_get_agent_owner_unknown_id_raises(self, contract):
+        with pytest.raises(Exception):
+            contract.get_agent_owner(agent_id="never-claimed")

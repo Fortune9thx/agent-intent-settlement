@@ -405,7 +405,11 @@ class TestEscrow:
         assert escrow["status"] == "slashed"
         assert escrow["transferred_to_treasury"] == "750"
 
-    def test_slash_without_treasury_holds_funds(self, contract, direct_vm):
+    def test_slash_without_treasury_holds_funds_recoverably(self, contract, direct_vm):
+        """A slash verdict with no treasury_address must NOT land in a
+        dead-end status: it has to be recoverable via resolve_stale_escrow
+        after the timeout, the same as an "escalate" verdict -- otherwise
+        funds are locked forever with no code path to ever move them."""
         _mock_llm(direct_vm, SLASH_VERDICT)
         direct_vm.value = 750
         try:
@@ -419,8 +423,37 @@ class TestEscrow:
             direct_vm.value = 0
 
         escrow = contract.get_escrow(settlement_id="e-6")
-        assert escrow["status"] == "slashed_no_treasury_held"
+        assert escrow["status"] == "held_pending_escalation"
+        assert escrow["held_reason"] == "slash_no_treasury"
         assert escrow["transferred_to_treasury"] == "0"
+
+    def test_slash_without_treasury_is_recoverable_after_stale_timeout(
+        self, contract, direct_vm, direct_bob
+    ):
+        _mock_llm(direct_vm, SLASH_VERDICT)
+        direct_vm.value = 750
+        try:
+            contract.settle_intent(
+                settlement_id="e-6b",
+                natural_language_goal="Goal",
+                agent_claim="Claim",
+                evidence_json=json.dumps(["contradicting evidence"]),
+            )
+        finally:
+            direct_vm.value = 0
+
+        import datetime
+
+        future = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(
+            days=31
+        )
+        direct_vm.warp(future.strftime("%Y-%m-%dT%H:%M:%SZ"))
+
+        with direct_vm.prank(direct_bob):
+            result = contract.resolve_stale_escrow(settlement_id="e-6b")
+
+        assert result["status"] == "refunded_stale"
+        assert result["refunded_to_sender"] == "750"
 
     def test_reject_refunds_sender_in_full(self, contract, direct_vm):
         _mock_llm(direct_vm, REJECT_VERDICT)

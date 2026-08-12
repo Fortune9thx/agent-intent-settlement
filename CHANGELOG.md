@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.0
+
+- Sixth adversarial pass (final pre-resubmission, expert product review -- traced every reachable code path from scratch rather than re-reading prior audits first): found two real gaps.
+- **Fixed a permanent-fund-lock bug:** a `slash` verdict with no `treasury_address` configured landed in a dead-end `"slashed_no_treasury_held"` status that `resolve_stale_escrow` never accepted -- funds locked forever, not even recoverable after 30 days, in an entirely plausible non-adversarial flow. Fixed by routing it into the same recoverable `"held_pending_escalation"` status as `escalate`, distinguished by a new `escrow.held_reason` field (`"slash_no_treasury"` vs `"escalated_verdict"`) for observability. More severe than the audit-#2 bug this is adjacent to, since escalate always had an exit and this never did.
+- **Fixed an unauthenticated-reputation gap:** `context.agent_id` had no binding to `sender` at all -- any caller could attribute any outcome to any agent, inflating or griefing a reputation score that isn't theirs, directly touching the "reputation-affecting output" language from the original steward rejection. Fixed with first-claim-wins ownership: the first sender to settle under an `agent_id` becomes its permanent owner; a later settlement from a different sender still executes normally but its reputation attribution is silently skipped. Two new view methods, `get_agent_owner`/`has_agent_owner`.
+- 90 direct-mode tests (up from 85), `genvm-lint` clean, 9 public methods (2 writes, 7 views -- up from 7).
+- Redeployed to `0x946b30A3F3c1135512DDcA61CEaFca07aD0cF365` on GenLayer Bradbury. Deploy: `ACCEPTED`/`AGREE`.
+
 ## 1.2.1
 
 - No code changes. Redeployed the identical 1.2.0 contract to GenLayer Bradbury (`0x43530786f5920BE9Dd7A9CDfC22243d1d22B4a6d`, `ACCEPTED`/`AGREE` on deploy) and made it the primary README-listed deployment, since GenLayer's hosted Studio Network explorer (`genlayer-explorer.vercel.app`) was found to be paused (`DEPLOYMENT_PAUSED`) on GenLayer's own infrastructure, while Bradbury's explorer (`explorer-bradbury.genlayer.com`) is live -- needed for the Portal submission's required `genlayer-explorer-contract` evidence link, which appears to validate that the URL actually resolves. The Studio Network deployment (`0xEcB0951a3d7361A01998936D34DC2DBc9DE72Dbc`) and its live-verification record remain valid and documented as supplementary evidence.

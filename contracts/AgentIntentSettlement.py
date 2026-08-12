@@ -124,13 +124,15 @@ MAX_PARTIAL_CREDIT_ON_WEAK_EVIDENCE = 0.7
 MIN_REASONING_CHARS = 20
 
 # Permissionless fallback so escrow can never be locked forever after an
-# "escalate" verdict. Refund-only, so it's safe to leave open to anyone --
-# refunding a funder's own money to themselves can never be unfair. This is
-# the ONLY way an escalated escrow can move: there is no discretionary
-# funder-resolution path -- every fund-moving outcome is either bound to
-# the independently-assessed settle_intent verdict, or this pure timed
-# refund-only safety valve. A future version may add a proper multi-party/
-# arbiter path; out of scope for this submission.
+# "escalate" verdict, OR a "slash" verdict with no treasury_address given
+# (both land in the same held_pending_escalation status -- see
+# _execute_escrow_action). Refund-only, so it's safe to leave open to
+# anyone -- refunding a funder's own money to themselves can never be
+# unfair. This is the ONLY way held escrow can move: there is no
+# discretionary funder-resolution path -- every fund-moving outcome is
+# either bound to the independently-assessed settle_intent verdict, or
+# this pure timed refund-only safety valve. A future version may add a
+# proper multi-party/arbiter path; out of scope for this submission.
 STALE_ESCROW_TIMEOUT_SECONDS = 30 * 24 * 60 * 60  # 30 days
 
 # gl.eq_principle.prompt_non_comparative's fixed task: what the model must
@@ -168,6 +170,7 @@ numbers."""
 class AgentIntentSettlement(gl.Contract):
     settlements: TreeMap[str, str]
     reputations: TreeMap[str, str]
+    agent_owners: TreeMap[str, str]
 
     def __init__(self):
         pass
@@ -271,8 +274,16 @@ class AgentIntentSettlement(gl.Contract):
             treasury=treasury,
         )
 
+        # First-claim-wins ownership: an unauthenticated agent_id would let
+        # any caller attribute any outcome to any agent, inflating or
+        # griefing a reputation score that isn't theirs. Degrades to no
+        # reputation update on a mismatched claim rather than reverting
+        # the whole settlement -- matches this contract's fail-safe
+        # pattern elsewhere, and reputation is documented as optional.
         agent_id = context.get("agent_id")
         agent_id = agent_id.strip() if isinstance(agent_id, str) else None
+        if agent_id:
+            agent_id = self._claim_or_verify_agent_owner(agent_id, sender)
         if agent_id:
             self._update_reputation(agent_id, verdict)
 
@@ -327,6 +338,17 @@ class AgentIntentSettlement(gl.Contract):
     @gl.public.view
     def has_reputation(self, agent_id: str) -> bool:
         return self.reputations.get(agent_id) is not None
+
+    @gl.public.view
+    def get_agent_owner(self, agent_id: str) -> str:
+        raw = self.agent_owners.get(agent_id)
+        if raw is None:
+            raise gl.vm.UserError(f"no owner claimed for agent_id: {agent_id}")
+        return raw
+
+    @gl.public.view
+    def has_agent_owner(self, agent_id: str) -> bool:
+        return self.agent_owners.get(agent_id) is not None
 
     # -----------------------------------------------------------------
     # Public write: permissionless stale-escrow fallback
@@ -473,6 +495,36 @@ class AgentIntentSettlement(gl.Contract):
             "agent_id": agent_id,
         }
 
+    def _claim_or_verify_agent_owner(
+        self, agent_id: str, sender: str
+    ) -> typing.Optional[str]:
+        """First-claim-wins ownership over an agent_id: the first sender to
+        ever tag a settlement with a given agent_id becomes its permanent
+        owner for reputation purposes. Without this, agent_id is a bare
+        caller-supplied string with no binding to identity at all -- any
+        caller could attribute any outcome to any agent_id, inflating or
+        griefing a reputation score that isn't theirs, which is exactly
+        the "reputation-affecting output not bound to assessment" class of
+        gap this contract's fund-moving paths were redesigned to close.
+        A mismatched claim returns None (no reputation update for this
+        settlement) rather than reverting -- the settlement itself, and
+        its escrow action, are unaffected either way. This does not
+        require signature-based identity: any two writers can still
+        legitimately share ownership by always calling from the same
+        sender (e.g. a marketplace contract managing many agent_ids under
+        its own address), and a determined party could still "squat" an
+        agent_id string before its natural owner ever uses it -- a lower-
+        severity, well-precedented trade-off (comparable to name
+        registration generally), not the wide-open spoofing gap this
+        closes."""
+        owner = self.agent_owners.get(agent_id)
+        if owner is None:
+            self.agent_owners[agent_id] = sender
+            return agent_id
+        if owner == sender:
+            return agent_id
+        return None
+
     def _update_reputation(self, agent_id: str, verdict: dict) -> dict:
         """Additive bookkeeping: release_escrow +1.0, partial_payout
         +partial_credit, slash -1.0, reject/escalate +0.0.
@@ -551,6 +603,7 @@ class AgentIntentSettlement(gl.Contract):
             "transferred_to_beneficiary": "0",
             "transferred_to_treasury": "0",
             "refunded_to_sender": "0",
+            "held_reason": None,
         }
 
         if escrow_value <= 0:
@@ -596,7 +649,15 @@ class AgentIntentSettlement(gl.Contract):
                 escrow["transferred_to_treasury"] = str(escrow_value)
                 escrow["status"] = "slashed"
             else:
-                escrow["status"] = "slashed_no_treasury_held"
+                # No treasury configured -- hold via the SAME recoverable
+                # path as "escalate" rather than a dead-end status. Without
+                # this, a slash verdict with no treasury_address in context
+                # would lock the escrow forever: resolve_stale_escrow only
+                # ever accepts "held_pending_escalation", so any other
+                # terminal status here would have no recovery path at all,
+                # not even after the timeout.
+                escrow["status"] = "held_pending_escalation"
+                escrow["held_reason"] = "slash_no_treasury"
 
         elif action == "reject":
             gl.get_contract_at(Address(sender)).emit_transfer(value=u256(escrow_value))
@@ -605,6 +666,7 @@ class AgentIntentSettlement(gl.Contract):
 
         else:  # "escalate"
             escrow["status"] = "held_pending_escalation"
+            escrow["held_reason"] = "escalated_verdict"
 
         return escrow
 

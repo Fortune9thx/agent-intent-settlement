@@ -6,11 +6,13 @@ AgentIntentSettlement is a reusable GenLayer Intelligent Contract that adjudicat
 
 **Network:** GenLayer Bradbury Testnet
 
-**Contract:** [`0x43530786f5920BE9Dd7A9CDfC22243d1d22B4a6d`](https://explorer-bradbury.genlayer.com/address/0x43530786f5920BE9Dd7A9CDfC22243d1d22B4a6d)
+**Contract:** [`0x946b30A3F3c1135512DDcA61CEaFca07aD0cF365`](https://explorer-bradbury.genlayer.com/address/0x946b30A3F3c1135512DDcA61CEaFca07aD0cF365)
 
-[`contracts/AgentIntentSettlement.py`](contracts/AgentIntentSettlement.py) is the implementation source of truth. This deployment reflects that file exactly and reached `ACCEPTED`/`AGREE` on deploy. The same code was also deployed and live-verified with real `settle_intent` calls on GenLayer Studio Network at `0xEcB0951a3d7361A01998936D34DC2DBc9DE72Dbc` (see [`docs/security-model.md`](docs/security-model.md#studio-network-verification)) — Bradbury is the primary deployment reference here since it has a working, browsable block explorer at the time of writing (GenLayer's hosted Studio Network explorer is currently paused on their end); the contract itself is network-agnostic and the design is identical across both.
+[`contracts/AgentIntentSettlement.py`](contracts/AgentIntentSettlement.py) is the implementation source of truth. This deployment reflects that file exactly and reached `ACCEPTED`/`AGREE` on deploy. The same code was also deployed and live-verified with real `settle_intent` calls on GenLayer Studio Network (see [`docs/security-model.md`](docs/security-model.md#studio-network-verification)) — Bradbury is the primary deployment reference here since it has a working, browsable block explorer at the time of writing (GenLayer's hosted Studio Network explorer is currently paused on their end); the contract itself is network-agnostic and the design is identical across both.
 
-**Fund-moving paths, exhaustively:** every settlement's escrow moves either (a) automatically, bound to the independently-assessed `settle_intent` verdict, or (b) via `resolve_stale_escrow`, a permissionless, refund-only safety valve after a 30-day timeout on an escalated case. There is no discretionary funder-resolution method — an earlier `resolve_escrow` method that let the funder override an `"escalate"` outcome without a fresh independent assessment has been removed entirely (see [`docs/security-model.md`](docs/security-model.md) for why).
+**Fund-moving paths, exhaustively:** every settlement's escrow moves either (a) automatically, bound to the independently-assessed `settle_intent` verdict, or (b) via `resolve_stale_escrow`, a permissionless, refund-only safety valve after a 30-day timeout on any held escrow — whether from an `"escalate"` verdict or a `"slash"` verdict with no `treasury_address` given. There is no discretionary funder-resolution method — an earlier `resolve_escrow` method that let the funder override an `"escalate"` outcome without a fresh independent assessment has been removed entirely (see [`docs/security-model.md`](docs/security-model.md) for why).
+
+**Reputation integrity:** `context.agent_id` is bound by first-claim-wins ownership — the first sender to settle under a given `agent_id` becomes its permanent owner, and only that sender's future settlements can affect its reputation. A mismatched claim from a different sender is silently ignored for reputation purposes (the settlement itself still proceeds normally); check ownership first via `has_agent_owner`/`get_agent_owner`.
 
 ## The trust problem
 
@@ -56,7 +58,7 @@ These rules exist specifically because an LLM's raw output cannot be assumed sel
 
 ## Contract interface
 
-AgentIntentSettlement exposes 7 public methods: 2 writes and 5 views. There is no discretionary funder-resolution method — see "Fund-moving paths" above.
+AgentIntentSettlement exposes 9 public methods: 2 writes and 7 views. There is no discretionary funder-resolution method — see "Fund-moving paths" above.
 
 | Type | Methods |
 |---|---|
@@ -64,6 +66,7 @@ AgentIntentSettlement exposes 7 public methods: 2 writes and 5 views. There is n
 | Settlement views | `get_settlement`, `has_settlement` |
 | Escrow views | `get_escrow` |
 | Reputation views | `get_reputation`, `has_reputation` |
+| Ownership views | `get_agent_owner`, `has_agent_owner` |
 
 ```python
 @gl.public.write.payable
@@ -75,9 +78,10 @@ def settle_intent(self, settlement_id: str, natural_language_goal: str, agent_cl
 
 @gl.public.write
 def resolve_stale_escrow(self, settlement_id: str) -> dict
-    # Permissionless refund-only fallback: after 30 days of an unresolved escalation,
-    # anyone may trigger a refund back to the original funder. The ONLY way an
-    # escalated escrow can move — there is no earlier discretionary override.
+    # Permissionless refund-only fallback: after 30 days of any held escrow (an
+    # "escalate" verdict, or a "slash" verdict with no treasury_address given),
+    # anyone may trigger a refund back to the original funder. The ONLY way held
+    # escrow can move — there is no earlier discretionary override.
 
 @gl.public.view
 def get_settlement(self, settlement_id: str) -> dict
@@ -89,6 +93,10 @@ def get_escrow(self, settlement_id: str) -> dict
 def get_reputation(self, agent_id: str) -> dict
 @gl.public.view
 def has_reputation(self, agent_id: str) -> bool
+@gl.public.view
+def get_agent_owner(self, agent_id: str) -> str
+@gl.public.view
+def has_agent_owner(self, agent_id: str) -> bool
 ```
 
 ## Verdict schema
@@ -117,15 +125,17 @@ def has_reputation(self, agent_id: str) -> bool
 |---|---|
 | `release_escrow` | Full amount to `context.beneficiary_address`, or refunded to the caller if none was given. |
 | `partial_payout` | Split between beneficiary and caller by `partial_credit` (capped on weak evidence). |
-| `slash` | Full amount to `context.treasury_address`, or held if none was given. |
+| `slash` | Full amount to `context.treasury_address` if given, otherwise held — recoverable the same way as `escalate` (see below), never a dead end. |
 | `reject` | Full refund to the caller. |
 | `escalate` | Held until anyone calls `resolve_stale_escrow` after 30 days — refund-only, back to the original funder. No earlier resolution path exists. |
 
-Every fund movement is therefore either bound to the independently-assessed `settle_intent` verdict, or is `resolve_stale_escrow`'s pure timed refund — there is no discretionary funder override. `escrow.status` (via `get_escrow`) is always the source of truth for what actually happened to funds.
+`slash` with no treasury and `escalate` both land in the same `held_pending_escalation` status (distinguished by `escrow.held_reason`, either `"slash_no_treasury"` or `"escalated_verdict"`) — both resolve identically via `resolve_stale_escrow` after the timeout. This matters: an earlier version let a `slash` verdict with no treasury configured lock funds permanently, since only `held_pending_escalation` was ever eligible for the stale-timeout recovery. Every fund movement is therefore either bound to the independently-assessed `settle_intent` verdict, or is `resolve_stale_escrow`'s pure timed refund — there is no discretionary funder override, and no status this contract can produce is ever unrecoverable. `escrow.status` (via `get_escrow`) is always the source of truth for what actually happened to funds.
 
 ## Reputation
 
 If a caller tags a settlement with `context.agent_id`, each settlement updates a running, on-chain reputation record for that identifier — release/partial/slash counts and a running score in `[-1.0, 1.0]`, queryable via `get_reputation`. This is entirely optional and additive. Reputation reflects only the automated `settle_intent` outcome.
+
+**Ownership.** `agent_id` is a bare caller-supplied string — without a binding to identity, any caller could attribute any outcome to any `agent_id`, inflating or griefing a reputation score that isn't theirs. `AgentIntentSettlement` closes this with first-claim-wins ownership: the first sender to ever settle under a given `agent_id` becomes its permanent owner (queryable via `get_agent_owner`/`has_agent_owner`); a later settlement tagged with the same `agent_id` from a *different* sender still executes normally, but its reputation attribution is silently skipped (`get_settlement`'s `agent_id` field reads back `null` for that settlement). This is not signature-based identity — a party can still "squat" a desirable `agent_id` string before its natural owner claims it, a lower-severity, well-precedented trade-off (comparable to name registration generally) rather than the wide-open spoofing this closes. A single sender consistently using its own address to manage many `agent_id`s (e.g. a marketplace contract acting on behalf of several agents) works correctly, since ownership is scoped per `agent_id`, not per contract.
 
 ## Integration example
 
@@ -134,7 +144,7 @@ If a caller tags a settlement with `context.agent_id`, each settlement updates a
 # a write method (cross-contract calls are forbidden inside run_nondet blocks):
 import genlayer.gl as gl
 
-SETTLEMENT_CONTRACT = Address("0x43530786f5920BE9Dd7A9CDfC22243d1d22B4a6d")
+SETTLEMENT_CONTRACT = Address("0x946b30A3F3c1135512DDcA61CEaFca07aD0cF365")
 
 verdict = gl.get_contract_at(SETTLEMENT_CONTRACT).emit(
     value=u256(escrow_amount)
@@ -149,19 +159,20 @@ verdict = gl.get_contract_at(SETTLEMENT_CONTRACT).emit(
 
 ## Security audits and reviews
 
-This contract went through five independent review passes before this deployment, all documented in [`docs/security-model.md`](docs/security-model.md):
+This contract went through six independent review passes before this deployment, all documented in [`docs/security-model.md`](docs/security-model.md):
 
 1. **First adversarial audit** found and closed a calldata-encoding defect that would have crashed every public method call in production the moment a verdict contained a numeric field, a settlement-id front-running path that could strand a legitimate funder's escrowed value, and missing input-size limits.
 2. **Second adversarial audit** found and closed a partial-payout logic gap that allowed near-total escrow extraction on weak, self-authored evidence while completely bypassing the stronger evidence requirements gating full release — the most severe finding across all three passes — along with tightening the evidence-quality and confidence requirements for full release.
 3. **Portal steward review** flagged that the validator only checked the leader's output shape and never independently verified the evidence or the fulfillment decision — meaning two conflicting substantive verdicts could both pass. Fixed by redesigning the adjudication pipeline around `gl.eq_principle.prompt_non_comparative`, so every validator genuinely re-fetches evidence and re-derives its own judgment (see [How it works](#how-it-works) above).
 4. **Fourth pass**, explicitly hunting for perimeters adjacent to but distinct from the closed steward finding, found that the per-call evidence-fetch cap let a submitter deterministically bury a contradicting-but-verifiable evidence item past the cap via array ordering. Fixed by making the skip note actively warn the adjudicator that a skipped item's content is unknown, not neutral, and verified live against the real model with a constructed counter-example (see `docs/security-model.md`).
-5. **Fifth pass (final pre-resubmission)**, targeting the "bind every fund-affecting output to independent assessment" requirement directly, identified that the (pre-existing, documented) `resolve_escrow` method let a funder manually override an `"escalate"` outcome without a fresh independent evidence check — a fund-affecting output not bound to consensus. Closed by removing `resolve_escrow` entirely: every fund movement is now either bound to the independently-assessed `settle_intent` verdict, or `resolve_stale_escrow`'s pure timed refund-only safety valve. No discretionary path remains.
+5. **Fifth pass**, targeting the "bind every fund-affecting output to independent assessment" requirement directly, identified that the (pre-existing, documented) `resolve_escrow` method let a funder manually override an `"escalate"` outcome without a fresh independent evidence check — a fund-affecting output not bound to consensus. Closed by removing `resolve_escrow` entirely: every fund movement is now either bound to the independently-assessed `settle_intent` verdict, or `resolve_stale_escrow`'s pure timed refund-only safety valve. No discretionary path remains.
+6. **Sixth pass (final pre-resubmission, expert product review)** found two further gaps by tracing every code path rather than re-reading prior audits: (a) a `slash` verdict with no `treasury_address` configured landed in a dead-end escrow status with *no* recovery path at all, not even after the stale timeout — worse than the bug the second audit already fixed for `escalate`, since that one at least had an exit; fixed by routing it into the same recoverable `held_pending_escalation` status. (b) `context.agent_id` was a bare, unauthenticated string — any caller could attribute any outcome to any agent, inflating or griefing a reputation score that isn't theirs, directly touching the "reputation-affecting output" language from the original steward rejection; fixed with first-claim-wins ownership (see [Reputation](#reputation) below).
 
-All fixes were verified with real `settle_intent` transactions on live networks, not only against the local test suite. A follow-up liveness-tuning pass then reduced per-validator independent workload (tighter evidence/prompt size ceilings, a per-call fetch cap) and re-verified live — see [`docs/security-model.md`](docs/security-model.md) for the full verification record, including a disclosed, not-fully-eliminated `DETERMINISTIC_VIOLATION`/timeout variability under Bradbury network conditions and why final verification moved to GenLayer Studio Network.
+All fixes were verified with real `settle_intent` transactions on live networks, not only against the local test suite. A follow-up liveness-tuning pass then reduced per-validator independent workload (tighter evidence/prompt size ceilings, a per-call fetch cap) and re-verified live — see [`docs/security-model.md`](docs/security-model.md) for the full verification record, including a disclosed, not-fully-eliminated `DETERMINISTIC_VIOLATION`/timeout variability under Bradbury network conditions.
 
 ## Testing
 
-85 direct-mode tests across five files in [`tests/direct/`](tests/direct/), covering the happy path, insufficient/partial/conflicting evidence, prompt-injection resistance, escrow across all five `recommended_action` outcomes, front-running and idempotency, input-size limits, calldata-safety (no float leaks into any return value), the per-call evidence-fetch cap (including that the fetch-cap caution wording actually reaches the LLM input, not just the source), that no discretionary escrow-resolution method exists, and every consistency rule above with a concrete failing-verdict payload for each. Run with:
+90 direct-mode tests across five files in [`tests/direct/`](tests/direct/), covering the happy path, insufficient/partial/conflicting evidence, prompt-injection resistance, escrow across all five `recommended_action` outcomes (including that a `slash` with no treasury is recoverable, not locked forever), front-running and idempotency, input-size limits, calldata-safety (no float leaks into any return value), the per-call evidence-fetch cap (including that the fetch-cap caution wording actually reaches the LLM input, not just the source), that no discretionary escrow-resolution method exists, agent_id ownership (a spoofed claim cannot affect another party's reputation), and every consistency rule above with a concrete failing-verdict payload for each. Run with:
 
 ```bash
 gltest tests/direct/ -v
