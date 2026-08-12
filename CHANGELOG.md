@@ -1,9 +1,16 @@
 # Changelog
 
+## 1.1.4
+
+- Fourth adversarial pass (final pre-resubmission, explicitly not re-litigating the closed validator-independence finding): constructed and closed a concrete counter-example where `MAX_FETCHED_ITEMS = 1` let a submitter deterministically bury a contradicting-but-verifiable evidence item past the fetch cap via array ordering, since every validator applies the same first-N-in-order rule independently. Fixed by rewriting the skip note in `_fetch_evidence` to explicitly warn that a skipped item's content is unknown, not neutral, and that `evidence_quality` must not be rated "strong" while unfetched verifiable-type items remain -- disclosed as a mitigation, not a full structural close, since any fixed selection rule below the submitted item count remains order-gameable in principle.
+- Documented (not a fund-safety bug, but a real observability gap): `resolve_escrow`/`resolve_stale_escrow` update `escrow.status` but never rewrite the stored `verdict` or adjust reputation. `escrow.status` is now explicitly documented as the source of truth for funds; `verdict` as an immutable record of the original automated assessment only.
+- Redeployed to `0xb906fa472d044470B1c28461120610De4EA877ce` on GenLayer Studio Network. Live-verified the exact buried-evidence counter-example against the real model: correctly returned `fulfilled: false` / `escalate`, `ACCEPTED`/`MAJORITY_AGREE` with 2/5 genuine `DISAGREE` votes.
+- 87 direct-mode tests (up from 85) -- including a behavioral test that only passes if the new caution wording is actually present in the leader/validator's input, not merely in the source. `genvm-lint` clean.
+
 ## 1.1.3
 
 - No contract code changes. Bradbury testnet's transaction-activation queue was confirmed (via the explorer's own queue-position display, and terminal `CANCELED`/`NOT_VOTED`/`numOfRounds: 0` receipts) to be backlogged network-wide, unrelated to contract correctness or payload size. The identical `1.1.2` contract source was deployed to GenLayer Studio Network (chain id 61999) for a clean verification run.
-- Deployed to `0xa4499ccecfc5474c76B6a0A9E17a2103aec8aE41`. Deploy: `FINALIZED`/`MAJORITY_AGREE`. Three independent `settle_intent` calls, all `ACCEPTED`/`MAJORITY_AGREE` (3/5 `AGREE` each, including one round with a genuine `DISAGREE` vote), with verdicts genuinely reactive to each validator's own independent fetch outcome (a successful fetch, a failed fetch, and an HTTP 403) rather than to the submitted claim text. Reputation aggregation verified correct across two settlements for the same agent.
+- Deployed to `0xb906fa472d044470B1c28461120610De4EA877ce`. Deploy: `FINALIZED`/`MAJORITY_AGREE`. Three independent `settle_intent` calls, all `ACCEPTED`/`MAJORITY_AGREE` (3/5 `AGREE` each, including one round with a genuine `DISAGREE` vote), with verdicts genuinely reactive to each validator's own independent fetch outcome (a successful fetch, a failed fetch, and an HTTP 403) rather than to the submitted claim text. Reputation aggregation verified correct across two settlements for the same agent.
 - This is now the primary reference deployment; see `docs/security-model.md` for the full verification record.
 
 ## 1.1.2

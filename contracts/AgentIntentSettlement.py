@@ -757,7 +757,13 @@ def _fetch_evidence(evidence_items: list) -> str:
         if fetched_count >= MAX_FETCHED_ITEMS:
             lines.append(
                 f"[{idx}] ({etype}: {content}) NOT FETCHED -- per-call fetch "
-                f"limit of {MAX_FETCHED_ITEMS} reached; treat as unverifiable."
+                f"limit of {MAX_FETCHED_ITEMS} reached. This item's actual "
+                "content is UNKNOWN, not neutral -- do not assume it would "
+                "have supported the claim, and do not rate evidence_quality "
+                "\"strong\" on the strength of fetched items alone if "
+                "unfetched verifiable-type items remain: their absence is "
+                "not evidence of anything and a submitter controls which "
+                "items get checked by their ordering."
             )
             continue
         fetched_count += 1

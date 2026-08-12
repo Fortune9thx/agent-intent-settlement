@@ -167,6 +167,36 @@ class TestFetchCap:
         # fetched at all, not merely truncated after fetching.
         assert len(direct_vm._web_mocks_hit) == 1
 
+    def test_skipped_item_note_reaches_the_llm_input(self, contract, direct_vm):
+        """A submitter could bury a contradicting-but-verifiable evidence
+        item past MAX_FETCHED_ITEMS, where it's never independently
+        checked. The skip note must actually appear in what the leader/
+        validator sees, and must warn against treating the gap as neutral
+        -- not just exist in the source as dead prose. Only a mock pattern
+        that requires the caution text will match; if the wording were
+        dropped from the actual input, this mock would miss and the
+        settlement would fall back to the safe default instead of the
+        fulfilled verdict asserted below.
+        """
+        direct_vm.clear_mocks()
+        direct_vm.mock_web(re_escape("https://example.com/first"), {"body": "content"})
+        direct_vm.mock_llm(
+            r"(?s)NOT FETCHED.*UNKNOWN, not neutral.*not assume it would",
+            json.dumps(FULFILLED_VERDICT),
+        )
+
+        items = [
+            {"type": "url", "content": "https://example.com/first"},
+            {"type": "url", "content": "https://example.com/second-buried"},
+        ]
+        verdict = contract.settle_intent(
+            settlement_id="fc-warn-1",
+            natural_language_goal="Goal",
+            agent_claim="Claim",
+            evidence_json=json.dumps(items),
+        )
+        assert verdict["fulfilled"] is True
+
     def test_settlement_still_succeeds_with_items_beyond_fetch_cap(
         self, contract, direct_vm
     ):
