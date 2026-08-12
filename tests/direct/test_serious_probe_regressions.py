@@ -20,11 +20,15 @@ New findings covered:
   N3 (MEDIUM) -- release_escrow had no minimum confidence floor; a verdict
                  could claim "fulfilled, strong evidence" while reporting
                  near-zero self-confidence and still release funds.
-  N4 (MEDIUM, economic) -- an escalated escrow whose funder never calls
-                 resolve_escrow (lost keys, abandoned bot, a calling
-                 contract with no forwarding path -- all realistic,
+  N4 (MEDIUM, economic) -- an escalated escrow (lost keys, abandoned bot, a
+                 calling contract with no forwarding path -- all realistic,
                  non-adversarial scenarios) was locked forever with no
-                 recovery path at all.
+                 recovery path at all. Fixed by resolve_stale_escrow; a
+                 later audit removed the discretionary funder-resolution
+                 method this originally accompanied, leaving
+                 resolve_stale_escrow as the only fund-moving path besides
+                 the automated verdict itself -- see test_agent_intent_
+                 settlement.py's TestEscrow for that.
   N5 (LOW, observability) -- no floor on how substantive `reasoning` had
                  to be; a technically-valid one-word reasoning provided no
                  real transparency to a downstream integrator.

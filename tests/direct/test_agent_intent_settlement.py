@@ -456,9 +456,21 @@ class TestEscrow:
         assert escrow["status"] == "held_pending_escalation"
         assert escrow["held_amount"] == "400"
 
-    def test_resolve_escrow_by_original_funder_succeeds(
-        self, contract, direct_vm, direct_alice
+    def test_no_discretionary_resolve_escrow_method_exists(self, contract):
+        """The removed discretionary funder-resolution path must not exist
+        at all -- every fund-moving outcome is either bound to the
+        independently-assessed settle_intent verdict, or the pure timed
+        refund-only resolve_stale_escrow safety valve. No third path."""
+        assert not hasattr(contract, "resolve_escrow")
+
+    def test_escalated_escrow_only_movable_via_stale_timeout(
+        self, contract, direct_vm, direct_bob
     ):
+        """Once escalated, escrow cannot be moved early by the funder,
+        by any other account, or by any method other than
+        resolve_stale_escrow after the timeout -- confirming there is no
+        surviving discretionary path, not merely that one named method
+        was deleted."""
         _mock_llm(direct_vm, INSUFFICIENT_VERDICT)
         direct_vm.value = 400
         try:
@@ -471,67 +483,20 @@ class TestEscrow:
         finally:
             direct_vm.value = 0
 
-        resolved = contract.resolve_escrow(
-            settlement_id="e-9",
-            action="release_escrow",
-            beneficiary_address=str(direct_alice),
-        )
-        assert resolved["status"] == "released"
-        assert resolved["transferred_to_beneficiary"] == "400"
-
-        escrow = contract.get_escrow(settlement_id="e-9")
-        assert escrow["status"] == "released"
-
-    def test_resolve_escrow_by_non_funder_raises(self, contract, direct_vm, direct_bob):
-        _mock_llm(direct_vm, INSUFFICIENT_VERDICT)
-        direct_vm.value = 400
-        try:
-            contract.settle_intent(
-                settlement_id="e-10",
-                natural_language_goal="Goal",
-                agent_claim="Claim",
-                evidence_json=json.dumps([]),
-            )
-        finally:
-            direct_vm.value = 0
-
+        # Not the funder trying (early): resolve_stale_escrow itself is
+        # permissionless, but must still reject before the timeout,
+        # regardless of who calls it.
         with direct_vm.prank(direct_bob):
             with pytest.raises(Exception):
-                contract.resolve_escrow(settlement_id="e-10", action="reject")
+                contract.resolve_stale_escrow(settlement_id="e-9")
 
-    def test_resolve_escrow_when_not_escalated_raises(self, contract, direct_vm):
-        _mock_llm(direct_vm, FULFILLED_VERDICT)
-        direct_vm.value = 100
-        try:
-            contract.settle_intent(
-                settlement_id="e-11",
-                natural_language_goal="Goal",
-                agent_claim="Claim",
-                evidence_json=json.dumps(
-                    ["strong evidence", {"type": "url", "content": "https://example.com/proof"}]
-                ),
-            )
-        finally:
-            direct_vm.value = 0
-
+        # The original funder, before the timeout: no early path either.
         with pytest.raises(Exception):
-            contract.resolve_escrow(settlement_id="e-11", action="reject")
+            contract.resolve_stale_escrow(settlement_id="e-9")
 
-    def test_resolve_escrow_invalid_action_raises(self, contract, direct_vm):
-        _mock_llm(direct_vm, INSUFFICIENT_VERDICT)
-        direct_vm.value = 100
-        try:
-            contract.settle_intent(
-                settlement_id="e-12",
-                natural_language_goal="Goal",
-                agent_claim="Claim",
-                evidence_json=json.dumps([]),
-            )
-        finally:
-            direct_vm.value = 0
-
-        with pytest.raises(Exception):
-            contract.resolve_escrow(settlement_id="e-12", action="escalate")
+        escrow = contract.get_escrow(settlement_id="e-9")
+        assert escrow["status"] == "held_pending_escalation"
+        assert escrow["held_amount"] == "400"
 
     def test_get_escrow_unknown_settlement_raises(self, contract):
         with pytest.raises(Exception):

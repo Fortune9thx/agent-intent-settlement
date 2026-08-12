@@ -108,8 +108,6 @@ MAX_CRITERIA_CHARS = 800
 MAX_CONTEXT_JSON_CHARS = 800
 MAX_EVIDENCE_ITEM_CHARS = 1000
 
-VALID_RESOLVE_ACTIONS = {"release_escrow", "partial_payout", "slash", "reject"}
-
 # Types the submitter cannot simply author themselves -- a fetch/render
 # actually happens against a third-party source. "text" is excluded.
 # "screenshot" is fetched as rendered page text (not a real image -- see
@@ -125,10 +123,14 @@ MAX_PARTIAL_CREDIT_ON_WEAK_EVIDENCE = 0.7
 
 MIN_REASONING_CHARS = 20
 
-# Permissionless fallback so escrow can never be locked forever if a
-# funder never calls resolve_escrow. Refund-only, so it's safe to leave
-# open to anyone -- refunding a funder's own money to themselves can never
-# be unfair.
+# Permissionless fallback so escrow can never be locked forever after an
+# "escalate" verdict. Refund-only, so it's safe to leave open to anyone --
+# refunding a funder's own money to themselves can never be unfair. This is
+# the ONLY way an escalated escrow can move: there is no discretionary
+# funder-resolution path -- every fund-moving outcome is either bound to
+# the independently-assessed settle_intent verdict, or this pure timed
+# refund-only safety valve. A future version may add a proper multi-party/
+# arbiter path; out of scope for this submission.
 STALE_ESCROW_TIMEOUT_SECONDS = 30 * 24 * 60 * 60  # 30 days
 
 # gl.eq_principle.prompt_non_comparative's fixed task: what the model must
@@ -327,65 +329,21 @@ class AgentIntentSettlement(gl.Contract):
         return self.reputations.get(agent_id) is not None
 
     # -----------------------------------------------------------------
-    # Public write: manually resolve an escalated escrow (funder-only)
-    # -----------------------------------------------------------------
-    @gl.public.write
-    def resolve_escrow(
-        self, settlement_id: str, action: str, beneficiary_address: str = ""
-    ) -> dict:
-        """Only the original funder may resolve a case settle_intent
-        escalated. A production deployment adjudicating high-value or
-        adversarial settlements would likely want a designated arbiter/DAO
-        role instead -- documented simplification, see repo docs."""
-        raw = self.settlements.get(settlement_id)
-        if raw is None:
-            raise gl.vm.UserError(f"no settlement found for id: {settlement_id}")
-        record = json.loads(raw)
-
-        escrow = record["escrow"]
-        if escrow["status"] != "held_pending_escalation":
-            raise gl.vm.UserError(
-                f"escrow for {settlement_id} is not pending escalation "
-                f"(status: {escrow['status']})"
-            )
-
-        sender = str(gl.message.sender_address)
-        if sender != record["submitted_by"]:
-            raise gl.vm.UserError(
-                "only the original funder may resolve an escalated escrow"
-            )
-
-        if action not in VALID_RESOLVE_ACTIONS:
-            raise gl.vm.UserError(
-                f"action must be one of {sorted(VALID_RESOLVE_ACTIONS)}"
-            )
-
-        beneficiary = (
-            Address(beneficiary_address) if beneficiary_address.strip() else None
-        )
-        treasury = self._parse_address(record["context"], "treasury_address")
-
-        new_escrow = self._execute_escrow_action(
-            action=action,
-            partial_credit=float(record["verdict"]["partial_credit"]),
-            escrow_value=int(escrow["held_amount"]),
-            sender=sender,
-            beneficiary=beneficiary,
-            treasury=treasury,
-        )
-        record["escrow"] = new_escrow
-        self.settlements[settlement_id] = json.dumps(record)
-        return new_escrow
-
-    # -----------------------------------------------------------------
     # Public write: permissionless stale-escrow fallback
+    #
+    # This is the ONLY fund-moving path other than the automated
+    # settle_intent verdict itself -- there is no discretionary funder-
+    # resolution method. An "escalate" verdict holds funds until this
+    # timeout fires; no earlier manual override exists.
     # -----------------------------------------------------------------
     @gl.public.write
     def resolve_stale_escrow(self, settlement_id: str) -> dict:
         """After STALE_ESCROW_TIMEOUT_SECONDS of an unresolved escalation,
         anyone may trigger a refund-only resolution back to the original
         funder -- safe to leave permissionless since refunding a funder's
-        own money to themselves can never be unfair."""
+        own money to themselves can never be unfair. This is the only way
+        an escalated escrow can move; there is no earlier discretionary
+        override."""
         raw = self.settlements.get(settlement_id)
         if raw is None:
             raise gl.vm.UserError(f"no settlement found for id: {settlement_id}")
@@ -403,8 +361,8 @@ class AgentIntentSettlement(gl.Contract):
             raise gl.vm.UserError(
                 f"escrow for {settlement_id} is not yet stale "
                 f"({age_seconds}s old, needs {STALE_ESCROW_TIMEOUT_SECONDS}s); "
-                "only the original funder may resolve it via resolve_escrow "
-                "until then"
+                "it stays held until then -- there is no earlier manual "
+                "resolution path"
             )
 
         sender = record["submitted_by"]

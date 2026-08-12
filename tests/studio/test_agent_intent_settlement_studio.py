@@ -150,7 +150,11 @@ class TestStudioEscrow:
         # it with a broad try/except.
         assert escrow["status"] in ("released", "refunded_no_beneficiary")
 
-    def test_escalated_escrow_can_be_resolved_by_funder(self, contract, default_account, accounts):
+    def test_escalated_escrow_has_no_discretionary_resolution(self, contract, default_account, accounts):
+        """There is no discretionary funder-resolution method -- an
+        escalated escrow stays held_pending_escalation until
+        resolve_stale_escrow's timeout; that path is covered by direct-mode
+        time-travel tests, not here (30 real days can't be waited out live)."""
         settlement_id = "studio-escrow-2"
         contract.settle_intent(
             args=[
@@ -170,13 +174,7 @@ class TestStudioEscrow:
                 f"got status {escrow['status']!r}"
             )
 
-        resolved = contract.resolve_escrow(
-            args=[settlement_id, "reject", ""]
-        ).transact(wait_transaction_status=TransactionStatus.ACCEPTED)
-        assert resolved is not None
-
-        final = contract.get_escrow(args=[settlement_id]).call()
-        assert final["status"] == "refunded"
+        assert not hasattr(contract, "resolve_escrow")
 
 
 class TestStudioReputation:
